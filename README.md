@@ -1,3 +1,6 @@
+This is a fork from https://github.com/devfd/react-native-google-signin and merged some pull requests.
+
+
 # react-native-google-signin
 
 [![xcode config](https://github.com/apptailor/react-native-google-signin/raw/master/img/demo-app.gif)](#demo)
