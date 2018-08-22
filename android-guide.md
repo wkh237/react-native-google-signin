@@ -4,6 +4,8 @@ Please see the **FAQ** at bottom before opening new issues
 
 ### 1. Android SDK Requirements
 
+You need to install the following packages in Android SDK Manager.
+
 You need the following packages
 
 [![link config](https://github.com/apptailor/react-native-google-signin/raw/master/img/android-req.png)](#config)
