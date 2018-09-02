@@ -9,14 +9,11 @@ import static co.apptailor.googlesignin.RNGoogleSigninModule.MODULE_NAME;
 public class PromiseWrapper {
     private Promise _promise;
 
-
-    public boolean setPromiseWithInProgressCheck(Promise promise) {
-        boolean success = false;
-        if (_promise == null) {
-            _promise = promise;
-            success = true;
+    public void setPromiseAndRejectPrevious(Promise promise) {
+        if (_promise != null) {
+            _promise.reject("NEW_REQUEST_STARTED", "an async operation was already in progress when you requested it again");
         }
-        return success;
+        _promise = promise;
     }
 
     public void resolve(Object value) {

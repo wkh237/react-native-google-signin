@@ -2,6 +2,7 @@ package co.apptailor.googlesignin;
 
 import android.accounts.Account;
 import android.app.Activity;
+import android.content.Context;
 import android.content.Intent;
 import android.os.AsyncTask;
 import android.support.annotation.NonNull;
@@ -49,7 +50,8 @@ public class RNGoogleSigninModule extends ReactContextBaseJavaModule {
     public static final String ASYNC_OP_IN_PROGRESS = "ASYNC_OP_IN_PROGRESS";
     public static final String PLAY_SERVICES_NOT_AVAILABLE = "PLAY_SERVICES_NOT_AVAILABLE";
 
-    private PromiseWrapper promiseWrapper;
+    private PromiseWrapper signInPromiseWrapper;
+    private PromiseWrapper signInSilentlyPromiseWrapper;
 
     @Override
     public String getName() {
@@ -58,7 +60,8 @@ public class RNGoogleSigninModule extends ReactContextBaseJavaModule {
 
     public RNGoogleSigninModule(final ReactApplicationContext reactContext) {
         super(reactContext);
-        promiseWrapper = new PromiseWrapper();
+        signInPromiseWrapper = new PromiseWrapper();
+        signInSilentlyPromiseWrapper = new PromiseWrapper();
         reactContext.addActivityEventListener(new RNGoogleSigninActivityEventListener());
     }
 
@@ -123,11 +126,8 @@ public class RNGoogleSigninModule extends ReactContextBaseJavaModule {
             rejectWithNullClientError(promise);
             return;
         }
-        boolean wasPromiseSet = promiseWrapper.setPromiseWithInProgressCheck(promise);
-        if (!wasPromiseSet) {
-            rejectWithAsyncOperationStillInProgress(promise);
-            return;
-        }
+        signInSilentlyPromiseWrapper.setPromiseAndRejectPrevious(promise);
+
 
         UiThreadUtil.runOnUiThread(new Runnable() {
             @Override
@@ -135,12 +135,12 @@ public class RNGoogleSigninModule extends ReactContextBaseJavaModule {
                 Task<GoogleSignInAccount> result = _apiClient.silentSignIn();
                 if (result.isSuccessful()) {
                     // There's immediate result available.
-                    handleSignInTaskResult(result);
+                    handleSignInTaskResult(result, signInSilentlyPromiseWrapper);
                 } else {
                     result.addOnCompleteListener(new OnCompleteListener() {
                         @Override
                         public void onComplete(Task task) {
-                            handleSignInTaskResult(task);
+                            handleSignInTaskResult(task, signInSilentlyPromiseWrapper);
                         }
                     });
                 }
@@ -148,14 +148,14 @@ public class RNGoogleSigninModule extends ReactContextBaseJavaModule {
         });
     }
 
-    private void handleSignInTaskResult(Task<GoogleSignInAccount> result) {
+    private void handleSignInTaskResult(Task<GoogleSignInAccount> result, PromiseWrapper promiseWrapper) {
         try {
             GoogleSignInAccount account = result.getResult(ApiException.class);
             WritableMap params = getUserProperties(account);
-            new AccessTokenRetrievalTask(this).execute(params);
+            new AccessTokenRetrievalTask(promiseWrapper, getReactApplicationContext()).execute(params);
         } catch (ApiException e) {
             int code = e.getStatusCode();
-            promiseWrapper.reject(String.valueOf(code), GoogleSignInStatusCodes.getStatusCodeString(code));
+            signInPromiseWrapper.reject(String.valueOf(code), GoogleSignInStatusCodes.getStatusCodeString(code));
         }
     }
 
@@ -173,11 +173,7 @@ public class RNGoogleSigninModule extends ReactContextBaseJavaModule {
             return;
         }
 
-        boolean wasPromiseSet = promiseWrapper.setPromiseWithInProgressCheck(promise);
-        if (!wasPromiseSet) {
-            rejectWithAsyncOperationStillInProgress(promise);
-            return;
-        }
+        signInPromiseWrapper.setPromiseAndRejectPrevious(promise);
 
         UiThreadUtil.runOnUiThread(new Runnable() {
             @Override
@@ -194,7 +190,7 @@ public class RNGoogleSigninModule extends ReactContextBaseJavaModule {
             if (requestCode == RC_SIGN_IN) {
                 // The Task returned from this call is always completed, no need to attach a listener.
                 Task<GoogleSignInAccount> task = GoogleSignIn.getSignedInAccountFromIntent(intent);
-                handleSignInTaskResult(task);
+                handleSignInTaskResult(task, signInPromiseWrapper);
             }
         }
     }
@@ -242,28 +238,31 @@ public class RNGoogleSigninModule extends ReactContextBaseJavaModule {
 
     private static class AccessTokenRetrievalTask extends AsyncTask<WritableMap, Void, WritableMap> {
 
-        private WeakReference<RNGoogleSigninModule> weakModuleRef;
+        private WeakReference<PromiseWrapper> promiseWrapperRef;
+        private WeakReference<Context> contextRef;
 
-        AccessTokenRetrievalTask(RNGoogleSigninModule module) {
-            this.weakModuleRef = new WeakReference<>(module);
+        AccessTokenRetrievalTask(PromiseWrapper promiseWrapper, Context ctx) {
+            this.promiseWrapperRef = new WeakReference<>(promiseWrapper);
+            this.contextRef = new WeakReference<>(ctx);
         }
 
         @Override
         protected WritableMap doInBackground(WritableMap... params) {
             WritableMap result = params[0];
             String mail = result.getMap("user").getString("email");
-            RNGoogleSigninModule moduleInstance = weakModuleRef.get();
-            if (moduleInstance == null) {
+            PromiseWrapper promiseWrapper = promiseWrapperRef.get();
+            Context ctx = contextRef.get();
+            if (promiseWrapper == null || ctx == null) {
                 return result;
             }
             try {
-                String token = GoogleAuthUtil.getToken(moduleInstance.getReactApplicationContext(),
+                String token = GoogleAuthUtil.getToken(ctx,
                         new Account(mail, "com.google"),
                         scopesToString(result.getArray("scopes")));
                 result.putString("accessToken", token);
                 return result;
             } catch (Exception e) {
-                moduleInstance.promiseWrapper.reject(MODULE_NAME, e.getLocalizedMessage());
+                promiseWrapper.reject(MODULE_NAME, e.getLocalizedMessage());
                 return null;
             }
         }
@@ -271,19 +270,15 @@ public class RNGoogleSigninModule extends ReactContextBaseJavaModule {
         @Override
         protected void onPostExecute(WritableMap result) {
             super.onPostExecute(result);
-            RNGoogleSigninModule moduleInstance = weakModuleRef.get();
-            if (moduleInstance != null && result != null) {
-                moduleInstance.promiseWrapper.resolve(result);
+            PromiseWrapper promiseWrapper = promiseWrapperRef.get();
+            if (promiseWrapper != null && result != null) {
+                promiseWrapper.resolve(result);
             }
         }
     }
 
     private void rejectWithNullClientError(Promise promise) {
         promise.reject(MODULE_NAME, "apiClient is null - call configure first");
-    }
-
-    private void rejectWithAsyncOperationStillInProgress(Promise promise) {
-        promise.reject(ASYNC_OP_IN_PROGRESS, "cannot set promise - some async operation is still in progress");
     }
 
 }
