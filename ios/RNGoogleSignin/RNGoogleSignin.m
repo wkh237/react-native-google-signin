@@ -80,9 +80,9 @@ RCT_EXPORT_METHOD(revokeAccess)
     }
 
     NSDictionary *body = @{
-                           @"name": user.profile.name,
-                           @"givenName": user.profile.givenName,
-                           @"familyName": user.profile.familyName,
+                           @"name": user.profile.name ? user.profile.name : [NSNull null],
+                           @"givenName": user.profile.givenName ? user.profile.givenName : [NSNull null],
+                           @"familyName": user.profile.familyName ? user.profile.familyName : [NSNull null],
                            @"id": user.userID,
                            @"photo": imageURL ? imageURL.absoluteString : [NSNull null],
                            @"email": user.profile.email,
